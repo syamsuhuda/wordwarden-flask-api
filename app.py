@@ -1,24 +1,33 @@
 from flask import Flask, request, jsonify
 import tensorflow as tf
 from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 import numpy as np
+import pickle
 import re
 
 app = Flask(__name__)
 
-# Load the pre-trained model
 model = load_model('model_bad_sentence_detector.h5')
 
+class CustomUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if module == "keras.preprocessing.text":
+            module = "tensorflow.keras.preprocessing.text"
+        return super().find_class(module, name)
+
+def load_tokenizer(path):
+    with open(path, 'rb') as handle:
+        tokenizer = CustomUnpickler(handle).load()
+    return tokenizer
+
+tokenizer = load_tokenizer('tokenizer.pickle')
+
 def preprocess(text, verbose=0):
-    # Example preprocessing: convert to lower case and remove non-word characters
     text = text.lower()
     text = re.sub(r'\W', ' ', text)
-    # Convert characters to ASCII integer values as a simple form of vectorization
-    # Adjust the vectorization according to your model's input requirements
-    vector = [ord(char) for char in text]
-    return vector
+    return text
 
-# Define the dictionary for class mapping
 dict_classes = {
     0: 'VERY NEGATIVE. Hate Speech and Abusive Tweet',
     1: 'NEGATIVE. Hate Speech but NOT Abusive Tweet',
@@ -46,14 +55,9 @@ def predict_text():
 
         preprocessed_text = preprocess(text, verbose=0)
 
-        # Ensure the vector is of the same length as expected by the model
-        max_length = 1000  # Adjust based on your model's expected input size
-        if len(preprocessed_text) < max_length:
-            preprocessed_text += [0] * (max_length - len(preprocessed_text))
-        elif len(preprocessed_text) > max_length:
-            preprocessed_text = preprocessed_text[:max_length]
-
-        the_tweet = np.array([preprocessed_text])
+        seq_tweet = tokenizer.texts_to_sequences([preprocessed_text])
+        max_length = 1000  
+        the_tweet = pad_sequences(seq_tweet, padding='post', maxlen=max_length, truncating='post')
 
         prediction = model.predict(the_tweet, verbose=0)
         classes = np.argmax(prediction, axis=1)
